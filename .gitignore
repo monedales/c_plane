@@ -1,0 +1,16 @@
+# Executáveis
+c_plane
+test_runner
+
+# Objetos
+*.o
+*.obj
+obj/
+
+# Mac
+.DS_Store
+
+# Editores
+.vscode/
+.idea/
+*.swp
