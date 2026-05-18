@@ -8,9 +8,10 @@ LIB_DIR		= lib
 OBJ_DIR		= obj
 
 SRCS		= $(SRC_DIR)/main.c \
-			  $(SRC_DIR)/input.c \
+			  $(SRC_DIR)/input_parser.c \
 			  $(SRC_DIR)/validation.c \
-			  $(SRC_DIR)/algorithm.c
+			  $(SRC_DIR)/algorithm.c \
+			  $(SRC_DIR)/utils.c
 
 LIB_SRCS	= $(wildcard $(LIB_DIR)/*.c)
 
