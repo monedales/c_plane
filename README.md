@@ -90,50 +90,70 @@ echo "4
 # Saída: 3
 ```
 
-## Explicação cliente
+## Explicação para o cliente
 
-*Em construção*
+Imagine o visor digital de vagas de um estacionamento de shopping. Quando um carro entra, o número sobe 1. Quando sai, desce 1. No final do dia, o gerente quer saber uma coisa simples: qual foi o maior número que apareceu no visor?
+
+Para a sala de espera do aeroporto, o problema é exatamente esse. Os registros de entrada e saída de cada passageiro são como os logs da cancela. A solução organiza esses registros em ordem cronológica e os percorre um a um, somando 1 nas entradas e subtraindo 1 nas saídas, anotando o maior valor encontrado ao longo do caminho.
+
+O truque que torna isso eficiente: em vez de verificar a lotação segundo a segundo (como revisar uma câmera de segurança quadro a quadro), o programa só olha os momentos em que algo muda. Se ninguém entra ou sai, a lotação não muda. Por isso ele ignora os momentos "vazios" e pula direto para os eventos relevantes.
+
+Sobre a regra especial: pense numa catraca de metrô. Se uma pessoa passa pela catraca de saída e outra passa pela de entrada exatamente ao mesmo tempo, o sistema registra primeiro a saída e depois a entrada. Elas não ocupam a sala simultaneamente naquele instante. O programa segue essa mesma lógica: em momentos empatados, saídas são sempre processadas antes de entradas.
 
 
 ## Explicação técnica
-*Em construção*
+
+### Pipeline
+
+O programa opera em três etapas sequenciais orquestradas pelo `main.c`:
+
+```
+stdin → read_input → validate_input → max_simultaneous → stdout
+```
+
+Qualquer falha em uma etapa interrompe o pipeline, libera a memória alocada via `goto cleanup` e imprime a mensagem de erro correspondente para stderr.
+
+### Leitura e parsing do input
+
+O `input_parser.c` lê três linhas do stdin com `fgets` e um buffer fixo de 1024 bytes, suficiente para o pior caso do enunciado (100 números de 4 dígitos com espaços).
+
+A conversão de string para inteiro usa `strtol` em vez de `atoi` por duas razões: o `strtol` detecta overflow via `errno` e expõe o ponteiro `endptr` para identificar o primeiro caractere não parseado. Isso permite distinguir com precisão entre input não numérico, valor fora do range e lista com tamanho incorreto, gerando mensagens de erro específicas para cada caso.
+
+### Validação de regras de negócio
+
+O `validation.c` verifica que para cada passageiro `i`, o momento de entrada é estritamente menor que o momento de saída (`E[i] < S[i]`). A igualdade `E[i] == S[j]` entre passageiros diferentes é permitida e tratada pelo algoritmo.
+
+O design separa validação de formato (input_parser) de validação de semântica (validation), seguindo o princípio de responsabilidade única.
 
 ### Algoritmo: Sweep Line
 
-A solução utiliza o algoritmo Sweep Line (linha de varredura), que opera em
-três etapas:
+O `algorithm.c` implementa o Sweep Line em três funções estáticas coordenadas pela função pública `max_simultaneous`:
 
-1. Transformação dos dados: cada passageiro gera dois eventos, uma entrada
-   marcada com +1 e uma saída marcada com -1.
+**Etapa 1: populate_events**
+Transforma as duas listas separadas em um array unificado de `N*2` eventos do tipo `t_event { int moment; bool is_entry; }`. Cada passageiro gera dois eventos: entrada (`is_entry = true`) e saída (`is_entry = false`).
 
-2. Ordenação dos eventos por momento. Em caso de empate no momento, saídas
-   são processadas antes de entradas, o que implementa a regra especial do
-   enunciado.
+A struct `t_event` é declarada internamente em `algorithm.c` e não exposta no header. Outros módulos não precisam conhecer a representação interna do algoritmo (information hiding).
 
-3. Varredura linear dos eventos ordenados, acumulando uma contagem atual e
-   registrando o valor máximo atingido.
+**Etapa 2: compare_events + qsort**
+Os eventos são ordenados por momento com `qsort`. A função de comparação `compare_events` resolve empates colocando saídas antes de entradas (`is_entry false = 0` vem antes de `is_entry true = 1`). Isso implementa diretamente a regra do enunciado: se dois eventos ocorrem no mesmo momento, a saída é processada primeiro.
 
-## Decisões de design
+**Etapa 3: sweep_events**
+Varredura linear dos eventos ordenados. Incrementa `current` nas entradas e decrementa nas saídas. Atualiza `max` sempre que `current` supera o valor anterior. Retorna `max` ao final.
 
-**Sweep Line sobre Difference Array:** escolhido por ser independente do
-range de momentos e reutilizável para escalas maiores.
+### Complexidade
 
-**strtol sobre atoi:** o `strtol` detecta overflow via `errno` e caracteres
-inválidos via `endptr`, tornando a validação do input mais robusta.
+- Tempo: O(N log N), dominado pelo `qsort` na etapa de ordenação
+- Espaço: O(N), para o array de 2N eventos alocado dinamicamente
 
-**goto cleanup no main:** padrão idiomático em C para centralizar o cleanup de recursos. Garante que `free_room` 
-é sempre chamado independente de qual etapa falhou, evitando memory leaks.
+Para N = 100 (limite do enunciado), o algoritmo processa em microssegundos. Em escala real com N na casa dos milhares, o Sweep Line continua eficiente pois sua complexidade cresce com N, não com o range de momentos. A alternativa Difference Array teria complexidade O(N + range), menos adequada se o range crescesse.
 
-**Struct t_event interna:** mantida dentro de `algorithm.c` como detalhe de implementação. Outros módulos não precisam 
-conhecer a representação interna do Sweep Line (information hiding).
+### Padrões aplicados
 
-**TDD:** os testes unitários do algoritmo foram escritos antes da implementação, seguindo o ciclo Red (falha) -> Green (passa) -> Refactor.
-
-### Por que Sweep Line e não Difference Array
-
-O Difference Array criaria um array de 1000 posições e marcaria +1/-1 em cada entrada e saída, varrendo depois linearmente. É mais simples de implementar,
-mas depende do range de momentos ser pequeno e fixo. O Sweep Line é independente do range e escala com N, tornando-se a escolha mais robusta para cenários além do enunciado.
-
+- **TDD**: testes unitários escritos antes da implementação, ciclo Red → Green → Refactor
+- **Information hiding**: `t_event` encapsulada dentro de `algorithm.c`
+- **Fail-fast**: input rejeitado imediatamente com erro específico ao primeiro dado inválido
+- **goto cleanup**: único ponto de liberação de memória no `main`, evita memory leaks em qualquer caminho de erro
+- **Static functions**: helpers do algoritmo invisíveis fora do módulo
 
 ## Estrutura do projeto
 
@@ -145,15 +165,12 @@ c_plane/
 │   ├── validation.c      valida regras de negócio (E[i] < S[i])
 │   ├── algorithm.c       implementação do Sweep Line
 │   └── utils.c           handle_error e free_room
-├── lib/
-│   ├── ft_string.c       ft_substr e ft_split da libft pessoal
-│   └── ft_memory.c       ft_free_arr da libft pessoal
 ├── include/
 │   └── c_plane.h         tipos, constantes e protótipos
 ├── tests/
-│   ├── test_algorithm.c  testes unitários do algoritmo (TDD)
-│   ├── input_100_all_overlap.txt
-│   └── input_100_sequential.txt
+│   ├── test_algorithm.c          testes unitários do algoritmo (TDD)
+│   ├── input_100_all_overlap.txt teste com 100 passageiros sobrepostos
+│   └── input_100_sequential.txt  teste com 100 passageiros sequenciais
 └── Makefile
 ```
 
@@ -171,3 +188,44 @@ O programa valida o input e retorna mensagens de erro descritivas para stderr:
 | Caracteres inválidos | `Error: input contains invalid characters. Use plain numbers separated by spaces.` |
 | Valor fora do range numérico | `Error: numeric value is out of allowed range` |
 | Falha de memória | `Error: memory allocation failed` |
+
+## Testes
+
+### Testes unitários (`make test`)
+
+| Arquivo | Casos cobertos |
+|---|---|
+| `tests/test_algorithm.c` | Exemplos do enunciado, passageiro único, todos sobrepostos, todos sequenciais, entrada e saída no mesmo momento, 50 e 100 passageiros sobrepostos e sequenciais, pico formado no meio do período |
+| `tests/test_algorithm.c` | Validação de E < S, E == S, E > S, room nulo |
+
+### Testes e2e (`make e2e`)
+
+| Categoria | Casos cobertos |
+|---|---|
+| Exemplos do enunciado | N=3 (max=3), N=4 (max=1) |
+| Casos extremos | Passageiro único, momentos mínimos, entrada igual à saída entre passageiros diferentes, 100 sobrepostos, 100 sequenciais |
+| Erros de validação | N=0, N=101, E==S, E>S |
+| Erros de formato | N alfabético, momento alfabético, caractere especial, overflow numérico, momento acima de 1000, abaixo de 1, lista menor que N, lista maior que N |
+
+### Arquivos de input
+
+| Arquivo | Descrição | Esperado |
+|---|---|---|
+| `input_100_all_overlap.txt` | 100 passageiros, todos sobrepostos | 100 |
+| `input_100_sequential.txt` | 100 passageiros, todos sequenciais | 1 |
+| `input_53_all_overlap.txt` | 53 passageiros, todos sobrepostos | 53 |
+| `input_69_two_groups.txt` | 69 passageiros em dois grupos que se encontram | 69 |
+| `input_81_peak_middle.txt` | 81 passageiros com pico formado no meio do período | 81 |
+
+---
+
+## Uso de IA
+
+Claude (Anthropic) foi utilizado como ferramenta de apoio ao longo do desenvolvimento deste desafio nas seguintes frentes:
+
+- Discussão e comparação de abordagens algorítmicas (Sweep Line, Difference Array, Força Bruta)
+- Explicação e aprofundamento de conceitos
+- Suporte na geração dos casos de teste unitários e e2e
+- Revisão de boas práticas de C e discussão de padrões idiomáticos da linguagem
+
+Todas as decisões de implementação, escolhas de design e o código em si foram desenvolvidos e revisados ativamente durante o processo.
