@@ -20,7 +20,7 @@ int	handle_error(t_input_error error)
 		"Error: moment values must be integers between 1 and 1000\n",
 		"Error: list size does not match the number of passengers\n",
 		"Error: a passenger entry must occur before its exit\n",
-		"Error: input contains non numeric characters. Use plain numbers separated by spaces.\n",
+		"Error: input contains invalid characters. Use plain numbers separated by spaces.\n",
 		"Error: numeric value is out of allowed range\n",
 		"Error: memory allocation failed\n"
 	};
